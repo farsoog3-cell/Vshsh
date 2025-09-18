@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>تحويل الصور لمخطط تطريز</title>
+  <style>
+    body{margin:0;font-family:sans-serif;background:#222;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}
+    .box{background:#333;padding:20px;border-radius:16px;max-width:700px;width:100%;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,0.6)}
+    h1{margin:0 0 20px;font-size:22px}
+    .btn{background:#ffcc00;color:#000;border:none;padding:10px 20px;margin:10px;border-radius:12px;cursor:pointer;font-weight:bold}
+    canvas{max-width:100%;border:2px solid #fff;border-radius:12px;margin-top:15px}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>تحويل صورة إلى مخطط للتطريز (حواف دقيقة)</h1>
+    <input type="file" id="uploader" accept="image/*" />
+    <div>
+      <button class="btn" id="convertBtn">تحويل إلى مخطط</button>
+      <button class="btn" id="downloadPngBtn">تنزيل PNG</button>
+      <button class="btn" id="downloadPdfBtn">تنزيل PDF</button>
+    </div>
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <!-- مكتبة PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <script>
+    const uploader=document.getElementById('uploader');
+    const canvas=document.getElementById('canvas');
+    const ctx=canvas.getContext('2d');
+    let img=new Image();
+
+    uploader.addEventListener('change',e=>{
+      const file=e.target.files[0];
+      if(file){
+        const reader=new FileReader();
+        reader.onload=ev=>{img.src=ev.target.result};
+        reader.readAsDataURL(file);
+      }
+    });
+
+    img.onload=function(){
+      const maxW=600;
+      const scale=Math.min(1,maxW/img.width);
+      canvas.width=img.width*scale;
+      canvas.height=img.height*scale;
+      ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    }
+
+    // خوارزمية Sobel Edge Detection
+    function sobel(imageData) {
+      const width = imageData.width;
+      const height = imageData.height;
+      const src = imageData.data;
+      const grayscale = new Uint8ClampedArray(width * height);
+
+      // حول إلى رمادي
+      for (let i = 0; i < src.length; i += 4) {
+        const avg = (src[i] + src[i+1] + src[i+2]) / 3;
+        grayscale[i/4] = avg;
+      }
+
+      const sobelData = new Uint8ClampedArray(width * height * 4);
+      const gxKernel = [-1,0,1,-2,0,2,-1,0,1];
+      const gyKernel = [-1,-2,-1,0,0,0,1,2,1];
+
+      for (let y=1; y<height-1; y++) {
+        for (let x=1; x<width-1; x++) {
+          let pixelX=0, pixelY=0;
+          let k=0;
+          for (let ky=-1; ky<=1; ky++) {
+            for (let kx=-1; kx<=1; kx++) {
+              const val = grayscale[(y+ky)*width + (x+kx)];
+              pixelX += gxKernel[k]*val;
+              pixelY += gyKernel[k]*val;
+              k++;
+            }
+          }
+          const magnitude = Math.sqrt(pixelX*pixelX + pixelY*pixelY);
+          const color = magnitude > 100 ? 0 : 255; // threshold
+          const idx = (y*width + x)*4;
+          sobelData[idx] = sobelData[idx+1] = sobelData[idx+2] = color;
+          sobelData[idx+3] = 255;
+        }
+      }
+
+      return new ImageData(sobelData, width, height);
+    }
+
+    document.getElementById('convertBtn').addEventListener('click',()=>{
+      if(!img.src){alert('الرجاء رفع صورة أولاً');return;}
+      ctx.drawImage(img,0,0,canvas.width,canvas.height);
+      let imageData=ctx.getImageData(0,0,canvas.width,canvas.height);
+      let sobelData = sobel(imageData);
+      ctx.putImageData(sobelData,0,0);
+    });
+
+    // تنزيل PNG
+    document.getElementById('downloadPngBtn').addEventListener('click',()=>{
+      const link=document.createElement('a');
+      link.download='embroidery_outline.png';
+      link.href=canvas.toDataURL('image/png');
+      link.click();
+    });
+
+    // تنزيل PDF
+    document.getElementById('downloadPdfBtn').addEventListener('click',()=>{
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF('p','mm','a4');
+      const imgData = canvas.toDataURL('image/png');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * pageWidth) / canvas.width;
+      const y = (pageHeight - imgHeight) / 2;
+      pdf.addImage(imgData,'PNG',0,y,imgWidth,imgHeight);
+      pdf.save('embroidery_outline.pdf');
+    });
+  </script>
+</body>
+</html>
